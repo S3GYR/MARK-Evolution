@@ -1,16 +1,13 @@
-"""LLM client abstraction using LiteLLM."""
+"""LLM client abstraction using LiteLLM Gateway."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Callable
-
-import litellm
-from litellm import acompletion, completion
+from typing import Any
 
 from jarvis.config.settings import Settings, get_settings
 from jarvis.observability.tracing import instrument_async
-from jarvis.security.secrets import get_secret, migrate_legacy_api_key
+from jarvis.llm.litellm_provider import get_litellm_provider
 
 
 @dataclass
@@ -43,52 +40,17 @@ class LLMResponse:
 
 
 class LLMClient:
-    """Unified LLM client supporting multiple providers through LiteLLM."""
+    """Simplified LLM client using LiteLLM Gateway only."""
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
-        self._api_keys: dict[str, str] = {}
-        self._load_api_keys()
-
-    def _load_api_keys(self) -> None:
-        """Load API keys from secure storage and environment."""
-        # Try migration first
-        migrate_legacy_api_key()
-
-        providers = {
-            "gemini": "GEMINI_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "deepseek": "DEEPSEEK_API_KEY",
-            "mistral": "MISTRAL_API_KEY",
-            "ollama": None,
-            "openrouter": "OPENROUTER_API_KEY",
-        }
-
-        for provider, env_name in providers.items():
-            if env_name:
-                value = get_secret(f"{provider}_api_key", env_override=env_name)
-                if value:
-                    self._api_keys[provider] = value
-
-        # Legacy single Gemini key
-        gemini = get_secret("gemini_api_key", env_override="GEMINI_API_KEY")
-        if gemini:
-            self._api_keys["gemini"] = gemini
-
-    def _api_key_for(self, model: str) -> str | None:
-        """Return the API key for the provider prefix of the model."""
-        provider = model.split("/")[0] if "/" in model else self.settings.llm_provider
-        return self._api_keys.get(provider)
+        self.provider = get_litellm_provider()
 
     def _get_model(self, model: str | None = None) -> str:
-        """Resolve the model identifier for LiteLLM."""
-        if model:
+        """Get the model name for LiteLLM."""
+        if model and model != "auto":
             return model
-        # If model is already in LiteLLM format like gemini/gemini-2.5-flash
-        if "/" in self.settings.llm_model:
-            return self.settings.llm_model
-        return f"{self.settings.llm_provider}/{self.settings.llm_model}"
+        return self.settings.default_model
 
     def _normalize_tools(self, tools: list[ToolDeclaration] | None) -> list[dict[str, Any]] | None:
         """Convert internal tool declarations to LiteLLM/OpenAI format."""
@@ -152,7 +114,7 @@ class LLMClient:
             return {}
 
     @instrument_async("llm.chat")
-    def chat(
+    async def chat(
         self,
         messages: list[dict[str, Any]],
         model: str | None = None,
@@ -162,60 +124,20 @@ class LLMClient:
         stream: bool = False,
         tool_choice: str | None = None,
     ) -> LLMResponse:
-        """Send a synchronous chat request to the LLM."""
-        model = self._get_model(model)
-        api_key = self._api_key_for(model)
+        """Send a chat request to LiteLLM Gateway."""
+        
+        # Use LiteLLM provider directly
+        raw_response = await self.provider.chat(
+            messages=messages,
+            model=self._get_model(model),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=stream,
+            tools=self._normalize_tools(tools),
+            tool_choice=tool_choice,
+        )
 
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "stream": stream,
-            "temperature": temperature if temperature is not None else self.settings.llm_temperature,
-        }
-        if api_key:
-            kwargs["api_key"] = api_key
-        if max_tokens or self.settings.llm_max_tokens:
-            kwargs["max_tokens"] = max_tokens or self.settings.llm_max_tokens
-        if tools:
-            kwargs["tools"] = self._normalize_tools(tools)
-        if tool_choice:
-            kwargs["tool_choice"] = tool_choice
-
-        response = completion(**kwargs)
-        return self._normalize_response(response, model)
-
-    @instrument_async("llm.achat")
-    async def achat(
-        self,
-        messages: list[dict[str, Any]],
-        model: str | None = None,
-        tools: list[ToolDeclaration] | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        stream: bool = False,
-        tool_choice: str | None = None,
-    ) -> LLMResponse:
-        """Send an asynchronous chat request to the LLM."""
-        model = self._get_model(model)
-        api_key = self._api_key_for(model)
-
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "stream": stream,
-            "temperature": temperature if temperature is not None else self.settings.llm_temperature,
-        }
-        if api_key:
-            kwargs["api_key"] = api_key
-        if max_tokens or self.settings.llm_max_tokens:
-            kwargs["max_tokens"] = max_tokens or self.settings.llm_max_tokens
-        if tools:
-            kwargs["tools"] = self._normalize_tools(tools)
-        if tool_choice:
-            kwargs["tool_choice"] = tool_choice
-
-        response = await acompletion(**kwargs)
-        return self._normalize_response(response, model)
+        return self._normalize_response(raw_response, self._get_model(model))
 
     async def achat_stream(
         self,

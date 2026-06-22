@@ -54,10 +54,12 @@ class SentenceTransformerProvider(EmbeddingProvider):
 
     def _load_model(self) -> Any:
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
-
-            self._model = SentenceTransformer(self.model_name, device=self.device)
-            self._dim = self._model.get_sentence_embedding_dimension()
+            try:
+                from sentence_transformers import SentenceTransformer
+                self._model = SentenceTransformer(self.model_name, device=self.device)
+                self._dim = self._model.get_sentence_embedding_dimension()
+            except ImportError:
+                raise ImportError("sentence-transformers is not installed. Install with: pip install sentence-transformers")
         return self._model
 
     def encode(self, text: str) -> list[float]:
@@ -80,8 +82,11 @@ class LiteLLMEmbeddingProvider(EmbeddingProvider):
         self._dim = dim
 
     def encode(self, text: str) -> list[float]:
-        import litellm
-
+        try:
+            import litellm
+        except ImportError:
+            raise ImportError("litellm is not installed. Install with: pip install litellm")
+        
         kwargs: dict[str, Any] = {
             "model": self.model,
             "input": [text],
@@ -102,24 +107,40 @@ def get_embedding_provider(settings: Settings | None = None) -> EmbeddingProvide
 
     if settings.embedding_provider == "sentence-transformers":
         try:
+            # Try to import first to trigger ImportError if not available
+            from sentence_transformers import SentenceTransformer
             return SentenceTransformerProvider(
                 model_name=settings.embedding_model,
                 device=settings.embedding_device,
                 dim=settings.vector_dim,
             )
+        except ImportError as e:
+            if settings.embedding_fallback_to_mock:
+                return MockEmbeddingProvider(settings.vector_dim)
+            raise RuntimeError(f"sentence-transformers not available: {e}") from e
         except Exception as e:
             if settings.embedding_fallback_to_mock:
                 return MockEmbeddingProvider(settings.vector_dim)
             raise RuntimeError(f"Could not load sentence-transformers model: {e}") from e
 
     if settings.embedding_provider == "litellm":
-        from jarvis.security.secrets import get_secret
-
-        api_key = get_secret("litellm_api_key", env_override="LITELLM_API_KEY")
-        return LiteLLMEmbeddingProvider(
-            model=settings.embedding_model,
-            api_key=api_key,
-            dim=settings.vector_dim,
-        )
+        try:
+            # Try to import first to trigger ImportError if not available
+            import litellm
+            from jarvis.security.secrets import get_secret
+            api_key = get_secret("litellm_api_key", env_override="LITELLM_API_KEY")
+            return LiteLLMEmbeddingProvider(
+                model=settings.embedding_model,
+                api_key=api_key,
+                dim=settings.vector_dim,
+            )
+        except ImportError as e:
+            if settings.embedding_fallback_to_mock:
+                return MockEmbeddingProvider(settings.vector_dim)
+            raise RuntimeError(f"litellm not available: {e}") from e
+        except Exception as e:
+            if settings.embedding_fallback_to_mock:
+                return MockEmbeddingProvider(settings.vector_dim)
+            raise RuntimeError(f"Could not load litellm provider: {e}") from e
 
     return MockEmbeddingProvider(settings.vector_dim)

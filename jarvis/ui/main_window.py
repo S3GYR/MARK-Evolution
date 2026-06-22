@@ -34,7 +34,7 @@ class JarvisMainWindow(QMainWindow):
 
     def __init__(self, face_path: str | None = None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("JARVIS")
+        self.setWindowTitle("M.A.R.K Evolution")
         self.setMinimumSize(MIN_W, MIN_H)
         self.resize(DEFAULT_W, DEFAULT_H)
 

@@ -24,12 +24,17 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # LLM
-    llm_provider: str = "gemini"
-    llm_model: str = "gemini/gemini-2.5-flash"
+    llm_provider: str = "litellm"
+    llm_model: str = "auto"
     llm_fallback_model: str | None = None
     llm_api_key: SecretStr | None = None
     llm_temperature: float = Field(0.7, ge=0.0, le=2.0)
     llm_max_tokens: int | None = None
+    
+    # LiteLLM Configuration
+    litellm_base_url: str = "http://192.168.1.198:4000"
+    litellm_api_key: str = "dummy"
+    default_model: str = "qwen-fast"
 
     # Audio
     audio_channels: int = 1

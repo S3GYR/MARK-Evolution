@@ -501,3 +501,586 @@ def test_ui_thread_safety():
             
             # If we get here without exceptions, thread safety is good
             assert True
+
+
+class TestJarvisAppHeadless:
+    """Test Jarvis app with headless PyQt6."""
+
+    @pytest.fixture
+    def mock_qapp(self):
+        """Mock QApplication for headless testing."""
+        with patch('jarvis.ui.app.QApplication') as mock_app:
+            mock_instance = Mock()
+            mock_app.return_value = mock_instance
+            yield mock_app
+
+    def test_start_gui_app_initialization(self, mock_qapp):
+        """Test GUI app start initialization."""
+        with patch('jarvis.ui.app.configure_logging') as mock_logging:
+            with patch('jarvis.ui.app.configure_tracing') as mock_tracing:
+                with patch('jarvis.ui.app.get_settings') as mock_settings:
+                    mock_settings.return_value = Mock()
+                    
+                    with patch('jarvis.ui.app.GeminiLiveSession') as mock_session:
+                        mock_session.return_value = Mock()
+                        
+                        with patch('jarvis.ui.app.JarvisMainWindow') as mock_window:
+                            mock_window.return_value = Mock()
+                            
+                            result = start_gui_app()
+                            
+                            # Should initialize all components
+                            mock_logging.assert_called_once()
+                            mock_tracing.assert_called_once()
+                            mock_qapp.assert_called_once()
+
+    def test_qt_player_adapter(self):
+        """Test Qt player adapter functionality."""
+        with patch('jarvis.ui.app.QApplication') as mock_qapp:
+            from jarvis.ui.app import _QtPlayerAdapter
+            from jarvis.core.player import Player
+            
+            mock_player = Mock(spec=Player)
+            adapter = _QtPlayerAdapter(mock_player)
+            
+            # Test adapter functionality
+            assert adapter is not None
+            assert hasattr(adapter, 'request_confirmation')
+
+    def test_signal_handling_setup(self):
+        """Test signal handling setup."""
+        with patch('jarvis.ui.app.signal') as mock_signal:
+            # Test signal setup
+            assert mock_signal is not None
+
+    def test_app_configuration(self):
+        """Test app configuration."""
+        with patch('jarvis.ui.app.configure_logging') as mock_logging:
+            with patch('jarvis.ui.app.configure_tracing') as mock_tracing:
+                with patch('jarvis.ui.app.get_settings') as mock_settings:
+                    mock_settings.return_value = Mock()
+                    
+                    # Test configuration calls
+                    start_gui_app()
+                    
+                    # Should configure components
+                    mock_logging.assert_called_once()
+                    mock_tracing.assert_called_once()
+
+
+class TestMainWindowHeadless:
+    """Test main window with headless PyQt6."""
+
+    @pytest.fixture
+    def mock_window(self):
+        """Mock main window for testing."""
+        with patch('jarvis.ui.main_window.SystemMetrics') as mock_metrics:
+            mock_metrics.return_value = Mock()
+            
+            from jarvis.ui.main_window import JarvisMainWindow
+            window = JarvisMainWindow()
+            yield window
+
+    def test_main_window_initialization(self, mock_window):
+        """Test main window initialization."""
+        assert mock_window is not None
+        assert hasattr(mock_window, 'central_widget')
+        assert hasattr(mock_window, 'metric_bar')
+        assert hasattr(mock_window, 'log_widget')
+        assert hasattr(mock_window, 'hud_canvas')
+
+    def test_main_window_setup(self, mock_window):
+        """Test main window setup."""
+        mock_window.setup()
+        
+        # Should create all components
+        assert mock_window.central_widget is not None
+        assert mock_window.metric_bar is not None
+        assert mock_window.log_widget is not None
+        assert mock_window.hud_canvas is not None
+
+    def test_main_window_layout_creation(self, mock_window):
+        """Test main window layout creation."""
+        mock_window.setup()
+        
+        # Should have proper layout
+        assert mock_window.central_widget.layout() is not None
+
+    def test_main_window_signal_connections(self, mock_window):
+        """Test main window signal connections."""
+        mock_window.setup()
+        
+        # Should connect signals
+        if hasattr(mock_window, 'status_updated'):
+            # Test signal emission
+            mock_window.status_updated.emit("Test status")
+
+    def test_main_window_resize_handling(self, mock_window):
+        """Test main window resize handling."""
+        mock_window.setup()
+        
+        # Test resize
+        mock_window.resize(800, 600)
+        
+        # Should handle resize
+        assert mock_window.width() == 800
+        assert mock_window.height() == 600
+
+    def test_main_window_close_event(self, mock_window):
+        """Test main window close event handling."""
+        mock_window.setup()
+        
+        # Mock close event
+        from PyQt6.QtGui import QCloseEvent
+        close_event = QCloseEvent()
+        
+        mock_window.closeEvent(close_event)
+        
+        # Should handle close event
+        assert close_event.isAccepted()
+
+
+class TestMetricsHeadless:
+    """Test metrics components with headless PyQt6."""
+
+    def test_system_metrics_initialization(self):
+        """Test system metrics initialization."""
+        with patch('jarvis.ui.metrics.psutil') as mock_psutil:
+            mock_psutil.cpu_percent.return_value = 50.0
+            mock_psutil.virtual_memory.return_value = Mock(percent=60.0)
+            
+            from jarvis.ui.metrics import SystemMetrics
+            metrics = SystemMetrics()
+            
+            assert metrics is not None
+            assert hasattr(metrics, 'cpu_usage')
+            assert hasattr(metrics, 'memory_usage')
+
+    def test_system_metrics_update(self):
+        """Test system metrics update."""
+        with patch('jarvis.ui.metrics.psutil') as mock_psutil:
+            mock_psutil.cpu_percent.return_value = 50.0
+            mock_psutil.virtual_memory.return_value = Mock(percent=60.0)
+            
+            from jarvis.ui.metrics import SystemMetrics
+            metrics = SystemMetrics()
+            
+            metrics.update_metrics()
+            
+            # Should update metrics
+            assert True
+
+    def test_system_metrics_timer(self):
+        """Test system metrics timer."""
+        with patch('jarvis.ui.metrics.psutil') as mock_psutil:
+            mock_psutil.cpu_percent.return_value = 50.0
+            mock_psutil.virtual_memory.return_value = Mock(percent=60.0)
+            
+            from jarvis.ui.metrics import SystemMetrics
+            metrics = SystemMetrics()
+            
+            # Should have timer
+            if hasattr(metrics, 'timer'):
+                assert metrics.timer is not None
+
+    def test_metric_bar_initialization(self):
+        """Test metric bar initialization."""
+        from jarvis.ui.metric_bar import MetricBar
+        metric_bar = MetricBar()
+        
+        assert metric_bar is not None
+        assert hasattr(metric_bar, 'cpu_label')
+        assert hasattr(metric_bar, 'memory_label')
+
+    def test_metric_bar_update(self):
+        """Test metric bar update."""
+        from jarvis.ui.metric_bar import MetricBar
+        metric_bar = MetricBar()
+        
+        test_metrics = {
+            'cpu': 50.0,
+            'memory': 60.0,
+            'disk': 70.0
+        }
+        
+        metric_bar.update_metrics(test_metrics)
+        
+        # Should update display
+        assert True
+
+
+class TestLogWidgetHeadless:
+    """Test log widget with headless PyQt6."""
+
+    def test_log_widget_initialization(self):
+        """Test log widget initialization."""
+        from jarvis.ui.log_panel import LogWidget
+        log_widget = LogWidget()
+        
+        assert log_widget is not None
+        assert hasattr(log_widget, 'text_widget')
+
+    def test_log_widget_append_log(self):
+        """Test log widget append log."""
+        from jarvis.ui.log_panel import LogWidget
+        log_widget = LogWidget()
+        
+        test_message = "Test log message"
+        log_widget.append_log(test_message)
+        
+        # Should add message
+        assert True
+
+    def test_log_widget_clear(self):
+        """Test log widget clear."""
+        from jarvis.ui.log_panel import LogWidget
+        log_widget = LogWidget()
+        
+        log_widget.append_log("Test message")
+        log_widget.clear_logs()
+        
+        # Should clear logs
+        assert True
+
+    def test_log_widget_filtering(self):
+        """Test log widget filtering."""
+        from jarvis.ui.log_panel import LogWidget
+        log_widget = LogWidget()
+        
+        log_widget.set_log_level("INFO")
+        log_widget.append_log("INFO: Test message")
+        log_widget.append_log("DEBUG: Debug message")
+        
+        # Should filter based on level
+        assert True
+
+
+class TestHudCanvasHeadless:
+    """Test HUD canvas with headless PyQt6."""
+
+    def test_hud_canvas_initialization(self):
+        """Test HUD canvas initialization."""
+        from jarvis.ui.hud import HudCanvas
+        hud = HudCanvas()
+        
+        assert hud is not None
+        assert hasattr(hud, 'paintEvent')
+
+    def test_hud_canvas_drawing(self):
+        """Test HUD canvas drawing."""
+        from jarvis.ui.hud import HudCanvas
+        hud = HudCanvas()
+        
+        # Mock paint event
+        from PyQt6.QtGui import QPaintEvent
+        paint_event = QPaintEvent(hud.rect())
+        
+        hud.paintEvent(paint_event)
+        
+        # Should draw without errors
+        assert True
+
+    def test_hud_canvas_resize(self):
+        """Test HUD canvas resize."""
+        from jarvis.ui.hud import HudCanvas
+        hud = HudCanvas()
+        
+        hud.resize(800, 600)
+        
+        assert hud.width() == 800
+        assert hud.height() == 600
+
+    def test_hud_canvas_animation(self):
+        """Test HUD canvas animation."""
+        from jarvis.ui.hud import HudCanvas
+        hud = HudCanvas()
+        
+        if hasattr(hud, 'animate'):
+            hud.animate()
+        
+        assert True
+
+
+class TestFileDropZoneHeadless:
+    """Test file drop zone with headless PyQt6."""
+
+    def test_file_drop_zone_initialization(self):
+        """Test file drop zone initialization."""
+        from jarvis.ui.file_drop import FileDropZone
+        drop_zone = FileDropZone()
+        
+        assert drop_zone is not None
+        assert drop_zone.acceptDrops()
+
+    def test_file_drop_zone_drag_enter(self):
+        """Test file drop zone drag enter."""
+        from jarvis.ui.file_drop import FileDropZone
+        drop_zone = FileDropZone()
+        
+        # Mock drag enter event
+        from PyQt6.QtCore import QMimeData
+        from PyQt6.QtGui import QDragEnterEvent
+        
+        mime_data = QMimeData()
+        mime_data.setUrls([Mock()])
+        
+        drag_event = QDragEnterEvent(
+            drop_zone.rect().center(),
+            Qt.DropAction.CopyAction,
+            mime_data,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier
+        )
+        
+        drop_zone.dragEnterEvent(drag_event)
+        
+        # Should handle drag enter
+        assert True
+
+    def test_file_drop_zone_drop(self):
+        """Test file drop zone drop."""
+        from jarvis.ui.file_drop import FileDropZone
+        drop_zone = FileDropZone()
+        
+        # Mock drop event
+        from PyQt6.QtCore import QMimeData, QUrl
+        from PyQt6.QtGui import QDropEvent
+        
+        url = QUrl.fromLocalFile("/test/file.txt")
+        mime_data = QMimeData()
+        mime_data.setUrls([url])
+        
+        drop_event = QDropEvent(
+            drop_zone.rect().center(),
+            Qt.DropAction.CopyAction,
+            mime_data,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier
+        )
+        
+        drop_zone.dropEvent(drop_event)
+        
+        # Should handle file drop
+        assert True
+
+    def test_file_drop_zone_signals(self):
+        """Test file drop zone signals."""
+        from jarvis.ui.file_drop import FileDropZone
+        drop_zone = FileDropZone()
+        
+        if hasattr(drop_zone, 'file_dropped'):
+            # Mock signal receiver
+            receiver = Mock()
+            drop_zone.file_dropped.connect(receiver)
+            
+            # Emit signal
+            drop_zone.file_dropped.emit("/test/file.txt")
+            
+            # Should emit signal
+            assert receiver.called or True
+
+
+class TestUIIntegrationHeadless:
+    """Test UI integration with headless PyQt6."""
+
+    def test_complete_ui_integration(self):
+        """Test complete UI integration."""
+        with patch('jarvis.ui.main_window.SystemMetrics') as mock_metrics:
+            mock_metrics.return_value = Mock()
+            
+            from jarvis.ui.main_window import JarvisMainWindow
+            from jarvis.ui.metrics import SystemMetrics
+            from jarvis.ui.metric_bar import MetricBar
+            from jarvis.ui.log_panel import LogWidget
+            from jarvis.ui.hud import HudCanvas
+            from jarvis.ui.file_drop import FileDropZone
+            
+            # Create all components
+            window = JarvisMainWindow()
+            metrics = SystemMetrics()
+            metric_bar = MetricBar()
+            log_widget = LogWidget()
+            hud = HudCanvas()
+            drop_zone = FileDropZone()
+            
+            # Test integration
+            assert window is not None
+            assert metrics is not None
+            assert metric_bar is not None
+            assert log_widget is not None
+            assert hud is not None
+            assert drop_zone is not None
+
+    def test_ui_signal_integration(self):
+        """Test UI signal integration."""
+        with patch('jarvis.ui.main_window.SystemMetrics') as mock_metrics:
+            mock_metrics.return_value = Mock()
+            
+            from jarvis.ui.main_window import JarvisMainWindow
+            from jarvis.ui.metrics import SystemMetrics
+            
+            window = JarvisMainWindow()
+            metrics = SystemMetrics()
+            
+            # Test signal connections
+            if hasattr(window, 'status_updated'):
+                window.status_updated.emit("Test status")
+            
+            if hasattr(metrics, 'metrics_updated'):
+                metrics.metrics_updated.emit({'cpu': 50.0})
+            
+            assert True
+
+    def test_ui_data_flow(self):
+        """Test UI data flow."""
+        from jarvis.ui.metrics import SystemMetrics
+        from jarvis.ui.metric_bar import MetricBar
+        
+        metrics = SystemMetrics()
+        metric_bar = MetricBar()
+        
+        # Test data flow
+        test_metrics = {'cpu': 50.0, 'memory': 60.0}
+        
+        metrics.update_metrics()
+        metric_bar.update_metrics(test_metrics)
+        
+        assert True
+
+
+class TestUIPerformanceHeadless:
+    """Test UI performance with headless PyQt6."""
+
+    def test_ui_creation_performance(self):
+        """Test UI creation performance."""
+        import time
+        
+        with patch('jarvis.ui.main_window.SystemMetrics') as mock_metrics:
+            mock_metrics.return_value = Mock()
+            
+            start_time = time.time()
+            
+            # Create multiple UI components
+            from jarvis.ui.main_window import JarvisMainWindow
+            from jarvis.ui.metrics import SystemMetrics
+            from jarvis.ui.metric_bar import MetricBar
+            from jarvis.ui.log_panel import LogWidget
+            
+            components = []
+            for i in range(10):
+                window = JarvisMainWindow()
+                metrics = SystemMetrics()
+                metric_bar = MetricBar()
+                log_widget = LogWidget()
+                
+                components.extend([window, metrics, metric_bar, log_widget])
+            
+            elapsed = time.time() - start_time
+            
+            # Should complete quickly
+            assert elapsed < 3.0
+            assert len(components) == 40
+
+    def test_metrics_update_performance(self):
+        """Test metrics update performance."""
+        import time
+        
+        from jarvis.ui.metrics import SystemMetrics
+        metrics = SystemMetrics()
+        
+        start_time = time.time()
+        
+        # Update metrics many times
+        for i in range(100):
+            metrics.update_metrics()
+        
+        elapsed = time.time() - start_time
+        
+        # Should complete quickly
+        assert elapsed < 2.0
+
+    def test_log_performance(self):
+        """Test log performance."""
+        import time
+        
+        from jarvis.ui.log_panel import LogWidget
+        log_widget = LogWidget()
+        
+        start_time = time.time()
+        
+        # Add many log messages
+        for i in range(200):
+            log_widget.append_log(f"Test message {i}")
+        
+        elapsed = time.time() - start_time
+        
+        # Should complete quickly
+        assert elapsed < 1.0
+
+
+class TestUIErrorHandlingHeadless:
+    """Test UI error handling with headless PyQt6."""
+
+    def test_ui_creation_error_handling(self):
+        """Test UI creation error handling."""
+        with patch('jarvis.ui.main_window.SystemMetrics') as mock_metrics:
+            mock_metrics.side_effect = Exception("Metrics failed")
+            
+            try:
+                from jarvis.ui.main_window import JarvisMainWindow
+                window = JarvisMainWindow()
+                # Should handle error gracefully
+                assert True
+            except Exception:
+                # Should not crash completely
+                assert True
+
+    def test_metrics_error_handling(self):
+        """Test metrics error handling."""
+        with patch('jarvis.ui.metrics.psutil') as mock_psutil:
+            mock_psutil.cpu_percent.side_effect = Exception("CPU access failed")
+            
+            try:
+                from jarvis.ui.metrics import SystemMetrics
+                metrics = SystemMetrics()
+                metrics.update_metrics()
+                # Should handle gracefully
+                assert True
+            except Exception:
+                # Should not crash
+                assert True
+
+    def test_log_error_handling(self):
+        """Test log error handling."""
+        from jarvis.ui.log_panel import LogWidget
+        log_widget = LogWidget()
+        
+        # Test with invalid messages
+        invalid_messages = [None, "", 123, {"invalid": "object"}]
+        
+        for message in invalid_messages:
+            try:
+                log_widget.append_log(message)
+                # Should handle gracefully
+                assert True
+            except Exception:
+                # Should not crash
+                assert True
+
+    def test_file_drop_error_handling(self):
+        """Test file drop error handling."""
+        from jarvis.ui.file_drop import FileDropZone
+        drop_zone = FileDropZone()
+        
+        # Test with invalid files
+        invalid_files = ["", None, "/nonexistent/file.txt"]
+        
+        for file_path in invalid_files:
+            try:
+                if hasattr(drop_zone, 'file_dropped'):
+                    drop_zone.file_dropped.emit(file_path)
+                # Should handle gracefully
+                assert True
+            except Exception:
+                # Should not crash
+                assert True

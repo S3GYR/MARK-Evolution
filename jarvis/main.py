@@ -68,7 +68,7 @@ class JarvisAssistant:
 
     async def shutdown(self) -> None:
         """Cleanup resources."""
-        if self.memory:
+        if self.memory and hasattr(self.memory, 'close'):
             await self.memory.close()
         logger.info("assistant_shutdown")
 

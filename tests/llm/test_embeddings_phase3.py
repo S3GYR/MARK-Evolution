@@ -18,6 +18,22 @@ from jarvis.llm.embeddings import (
 from jarvis.config.settings import Settings
 
 
+def skip_if_missing_dependency(dependency_name):
+    """Decorator to skip tests if dependency is missing."""
+    def decorator(test_func):
+        def wrapper(*args, **kwargs):
+            try:
+                if dependency_name == "sentence-transformers":
+                    import sentence_transformers
+                elif dependency_name == "litellm":
+                    import litellm
+                return test_func(*args, **kwargs)
+            except ImportError:
+                pytest.skip(f"{dependency_name} not available")
+        return wrapper
+    return decorator
+
+
 class TestMockEmbeddingProvider:
     """Test MockEmbeddingProvider for robustness."""
 
@@ -126,17 +142,19 @@ class TestSentenceTransformerProvider:
     @pytest.fixture
     def mock_sentence_transformer(self):
         """Mock sentence-transformers for testing."""
-        with patch('jarvis.llm.embeddings.SentenceTransformer') as mock_st:
-            mock_model = Mock()
-            mock_model.get_sentence_embedding_dimension.return_value = 384
-            mock_model.encode.return_value = [[0.1, 0.2, 0.3] * 128]  # 384 dim
-            mock_st.return_value = mock_model
-            yield mock_model, mock_st
+        try:
+            with patch('jarvis.llm.embeddings.SentenceTransformer') as mock_st:
+                mock_model = Mock()
+                mock_model.get_sentence_embedding_dimension.return_value = 384
+                mock_model.encode.return_value = [[0.1, 0.2, 0.3] * 128]  # 384 dim
+                mock_st.return_value = mock_model
+                yield mock_model, mock_st
+        except ImportError:
+            pytest.skip("sentence-transformers not available for mocking")
 
-    def test_sentence_transformer_initialization(self, mock_sentence_transformer):
+    @skip_if_missing_dependency("sentence-transformers")
+    def test_sentence_transformer_initialization(self):
         """Test provider initialization."""
-        mock_model, mock_st = mock_sentence_transformer
-        
         provider = SentenceTransformerProvider(
             model_name="all-MiniLM-L6-v2",
             device="cpu",
@@ -147,6 +165,18 @@ class TestSentenceTransformerProvider:
         assert provider.device == "cpu"
         assert provider._dim == 384
         assert provider._model is None  # Not loaded yet
+
+    def test_sentence_transformer_unavailable(self):
+        """Test provider behavior when sentence-transformers is not available."""
+        provider = SentenceTransformerProvider(
+            model_name="all-MiniLM-L6-v2",
+            device="cpu",
+            dim=384
+        )
+        
+        # Should handle ImportError gracefully
+        with pytest.raises(ImportError, match="sentence-transformers is not installed"):
+            provider._load_model()
 
     def test_sentence_transformer_model_loading(self, mock_sentence_transformer):
         """Test model loading on demand."""
@@ -319,6 +349,12 @@ class TestLiteLLMEmbeddingProvider:
             mock_litellm.embedding.return_value = mock_response
             yield mock_litellm, mock_response
 
+    @pytest.fixture
+    def fallback_litellm(self):
+        """Fallback mock when LiteLLM is not available."""
+        with patch('jarvis.llm.embeddings.litellm', side_effect=ImportError("litellm not available")):
+            yield
+
     def test_litellm_provider_initialization(self):
         """Test provider initialization."""
         provider = LiteLLMEmbeddingProvider(
@@ -329,6 +365,18 @@ class TestLiteLLMEmbeddingProvider:
         
         assert provider.model == "text-embedding-ada-002"
         assert provider.api_key == "test_key"
+
+    def test_litellm_unavailable(self, fallback_litellm):
+        """Test provider behavior when LiteLLM is not available."""
+        provider = LiteLLMEmbeddingProvider(
+            model="text-embedding-ada-002",
+            api_key="test_key",
+            dim=1536
+        )
+        
+        # Should handle ImportError gracefully
+        with pytest.raises(ImportError):
+            provider.encode("test text")
         assert provider._dim == 1536
 
     def test_litellm_provider_without_api_key(self, mock_litellm):

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "jarvis"
 version = "46.0.0"
-description = "MARK XLVI — Modular AI assistant with LiteLLM, pgvector memory, and secure tooling"
+description = "M.A.R.K Evolution — The AI Command Center: Modular Artificial Reasoning Kernel Evolution platform for orchestrating AI models, autonomous agents, memory systems and automation tools"
 readme = "readme.md"
 license = { text = "BY-NC 4.0" }
 requires-python = ">=3.11"
