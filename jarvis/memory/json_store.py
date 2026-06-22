@@ -54,9 +54,17 @@ class JsonMemoryStore(MemoryStore):
         return data
 
     def _save(self, data: dict[str, dict[str, Any]]) -> None:
-        """Save the memory file atomically."""
+        """Save the memory file atomically with file locking."""
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        # Use file locking to prevent race conditions
+        try:
+            import portalocker
+            with open(tmp, 'w', encoding='utf-8') as f:
+                portalocker.lock(f, portalocker.LOCK_EX)  # Exclusive lock
+                json.dump(data, f, indent=2)
+        except ImportError:
+            # Fallback to simple write if portalocker not available
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
         tmp.replace(self.path)
 
     async def save(
@@ -130,13 +138,13 @@ class JsonMemoryStore(MemoryStore):
             for key, entry in entries.items():
                 value = entry.get("value", "")
                 line = f"[{category}] {key}: {value}"
-                if total + len(line) > max_chars:
+                if total + len(line) + 1 > max_chars:  # Check before adding
                     break
                 lines.append(line)
                 total += len(line) + 1
         return "\n".join(lines)
 
-    async def close(self) -> None:
+    def close(self) -> None:
         """No-op for JSON store."""
         return
 
