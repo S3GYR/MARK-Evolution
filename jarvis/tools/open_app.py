@@ -55,13 +55,46 @@ _APP_ALIASES: dict[str, dict[str, str]] = {
 
 def _is_blocked(app_name: str) -> bool:
     """Return True if the app name is blocked for security reasons."""
+    # Normalize the app name for comprehensive checking
     normalized = app_name.lower().strip()
+    
+    # Check for exact matches and partial matches in BLOCKED_APP_PATTERNS
     for pattern in BLOCKED_APP_PATTERNS:
         if pattern in normalized or normalized == pattern:
             return True
-    # Reject command separators and path traversal
-    if any(c in app_name for c in ";|&$><`\n\r"):
+    
+    # Enhanced path traversal detection
+    if any(seq in normalized for seq in ["../", "..\\", "./", ".\\"]):
         return True
+    
+    # Enhanced command injection detection
+    dangerous_chars = ";|&$><`\n\r\"'()[]{}"
+    if any(c in app_name for c in dangerous_chars):
+        return True
+    
+    # Check for dangerous command patterns
+    dangerous_patterns = [
+        "cmd.exe", "powershell", "bash", "sh", "zsh",
+        "sudo", "su", "rm ", "del ", "format", "diskpart",
+        "regedit", "taskkill", "netsh", "iptables", "ufw",
+        "system(", "exec(", "eval(", "subprocess", "os.system",
+        "call(", "invoke", "runas", "chmod", "chown"
+    ]
+    
+    for pattern in dangerous_patterns:
+        if pattern in normalized:
+            return True
+    
+    # Check for protocol injection
+    protocols = ["http://", "https://", "ftp://", "file://", "javascript:", "data:", "vbscript:"]
+    for protocol in protocols:
+        if protocol in normalized:
+            return True
+    
+    # Check for encoded/obfuscated patterns
+    if any(char in normalized for char in "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0b\x0c\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f"):
+        return True
+    
     return False
 
 

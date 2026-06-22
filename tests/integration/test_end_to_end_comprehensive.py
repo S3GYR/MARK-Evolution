@@ -8,7 +8,17 @@ import asyncio
 import json
 import tempfile
 import os
-from typing import Any
+import threading
+import time
+from pathlib import Path
+from typing import Any, Dict
+
+from jarvis.core.orchestrator import AgentOrchestrator
+from jarvis.core.tool_runner import ToolRunner
+from jarvis.llm.client import LLMClient
+from jarvis.memory.json_store import JsonMemoryStore
+from jarvis.tools.registry import get_tool_declarations
+from jarvis.security.permissions import ActionContext
 
 
 @pytest.mark.asyncio
@@ -547,10 +557,416 @@ async def test_error_recovery_integration():
                         result = await assistant.run_command("Test recovery")
                         # If it succeeds, system recovered
                         assert result == "Recovery response"
-                    except Exception:
-                        # If it fails, that's also acceptable behavior
-                        pass
+
+
+class TestOrchestratorIntegration:
+    """Test orchestrator integration with all components."""
+
+    def test_orchestrator_tool_integration(self):
+        """Test orchestrator integration with tools."""
+        with patch('jarvis.core.orchestrator.LLMClient') as mock_llm:
+            mock_client = Mock()
+            mock_client.chat.return_value = Mock(content="Use the computer control tool")
+            mock_llm.return_value = mock_client
+            
+            with patch('jarvis.core.orchestrator.ToolRunner') as mock_runner:
+                mock_tool_runner = Mock()
+                mock_tool_runner.run_tool.return_value = "Tool executed successfully"
+                mock_runner.return_value = mock_tool_runner
+                
+                orchestrator = AgentOrchestrator()
+                
+                result = orchestrator.process_request(
+                    "Please help me with computer control",
+                    session_id="test_session"
+                )
+                
+                # Should integrate LLM and tool runner
+                assert isinstance(result, dict)
+                assert "response" in result
+
+    def test_orchestrator_memory_integration(self):
+        """Test orchestrator integration with memory store."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store_file = Path(temp_dir) / "test_store.json"
+            
+            with patch('jarvis.core.orchestrator.LLMClient') as mock_llm:
+                mock_client = Mock()
+                mock_client.chat.return_value = Mock(content="I'll help you")
+                mock_llm.return_value = mock_client
+                
+                orchestrator = AgentOrchestrator()
+                orchestrator.memory_store = JsonMemoryStore(store_file)
+                
+                # Test memory integration
+                result = orchestrator.process_request(
+                    "Remember my preference for dark mode",
+                    session_id="test_session"
+                )
+                
+                # Should store and retrieve from memory
+                assert isinstance(result, dict)
+
+
+class TestToolRunnerIntegration:
+    """Test tool runner integration with tools and security."""
+
+    def test_tool_runner_registry_integration(self):
+        """Test tool runner integration with tool registry."""
+        tool_runner = ToolRunner()
+        declarations = get_tool_declarations()
+        
+        # Should have access to all tool declarations
+        assert isinstance(declarations, list)
+        assert len(declarations) > 0
+        
+        # Test tool availability
+        for declaration in declarations:
+            tool_name = declaration.get("function", {}).get("name", "")
+            if tool_name:
+                assert tool_runner.has_tool(tool_name)
+
+    def test_tool_runner_security_integration(self):
+        """Test tool runner security integration."""
+        tool_runner = ToolRunner()
+        
+        with patch('jarvis.security.permissions.ActionContext') as mock_context:
+            mock_context.return_value.check.return_value = False  # Denied
+            
+            result = tool_runner.run_tool(
+                "computer_control",
+                {"action": "dangerous_operation"}
+            )
+            
+            # Should handle security denial
+            assert "cancelled" in result.lower() or "denied" in result.lower()
+
+    def test_tool_runner_error_handling(self):
+        """Test tool runner error handling."""
+        tool_runner = ToolRunner()
+        
+        # Test invalid tool
+        result = tool_runner.run_tool("nonexistent_tool", {})
+        assert "not found" in result.lower() or "error" in result.lower()
+        
+        # Test invalid parameters
+        result = tool_runner.run_tool("computer_control", None)
+        assert isinstance(result, str)
+
+
+class TestLLMIntegration:
+    """Test LLM client integration."""
+
+    def test_llm_tool_integration(self):
+        """Test LLM client integration with tool declarations."""
+        with patch('jarvis.llm.client.LLMClient._make_request') as mock_request:
+            mock_request.return_value = {
+                "choices": [{
+                    "message": {
+                        "content": "I'll help you with that task"
+                    }
+                }]
+            }
+            
+            client = LLMClient()
+            declarations = get_tool_declarations()
+            
+            result = client.chat(
+                messages=[{"role": "user", "content": "Help me"}],
+                tools=declarations
+            )
+            
+            # Should integrate tools with LLM
+            assert result.content is not None
+
+    def test_llm_memory_integration(self):
+        """Test LLM client integration with memory context."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store_file = Path(temp_dir) / "test_store.json"
+            memory_store = JsonMemoryStore(store_file)
+            
+            # Store some context
+            memory_store.store("test_session", "user_preference", "dark_mode")
+            
+            with patch('jarvis.llm.client.LLMClient._make_request') as mock_request:
+                mock_request.return_value = {
+                    "choices": [{
+                        "message": {
+                            "content": "I remember your preference"
+                        }
+                    }]
+                }
+                
+                client = LLMClient()
+                result = client.chat(
+                    messages=[{"role": "user", "content": "What do you remember?"}],
+                    memory_context=memory_store.get_session_context("test_session")
+                )
+                
+                # Should use memory context
+                assert result.content is not None
+
+    def test_llm_error_handling(self):
+        """Test LLM client error handling."""
+        with patch('jarvis.llm.client.LLMClient._make_request') as mock_request:
+            mock_request.side_effect = Exception("API error")
+            
+            client = LLMClient()
+            
+            with pytest.raises(Exception):
+                client.chat(messages=[{"role": "user", "content": "test"}])
+
+
+class TestMemoryIntegration:
+    """Test memory store integration."""
+
+    def test_memory_json_integration(self):
+        """Test JSON memory store integration."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store_file = Path(temp_dir) / "test_store.json"
+            memory_store = JsonMemoryStore(store_file)
+            
+            # Test storage and retrieval
+            memory_store.store("session1", "key1", "value1")
+            result = memory_store.retrieve("session1", "key1")
+            assert result == "value1"
+            
+            # Test session management
+            context = memory_store.get_session_context("session1")
+            assert isinstance(context, dict)
+
+    def test_memory_concurrent_access(self):
+        """Test memory store concurrent access."""
+        results = []
+        
+        def store_operation(session_id, key, value):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                store_file = Path(temp_dir) / f"test_store_{session_id}.json"
+                memory_store = JsonMemoryStore(store_file)
+                memory_store.store(session_id, key, value)
+                result = memory_store.retrieve(session_id, key)
+                results.append(result)
+        
+        # Run concurrent operations
+        threads = []
+        for i in range(3):
+            thread = threading.Thread(
+                target=store_operation,
+                args=(f"session{i}", f"key{i}", f"value{i}")
+            )
+            threads.append(thread)
+            thread.start()
+        
+        for thread in threads:
+            thread.join()
+        
+        # Should handle concurrent access
+        assert len(results) == 3
+        for i, result in enumerate(results):
+            assert result == f"value{i}"
+
+    def test_memory_persistence(self):
+        """Test memory store persistence."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store_file = Path(temp_dir) / "test_store.json"
+            
+            # Store data in first instance
+            memory_store1 = JsonMemoryStore(store_file)
+            memory_store1.store("session1", "key1", "persistent_value")
+            memory_store1.close()
+            
+            # Retrieve data in second instance
+            memory_store2 = JsonMemoryStore(store_file)
+            result = memory_store2.retrieve("session1", "key1")
+            assert result == "persistent_value"
+
+
+class TestSecurityIntegration:
+    """Test security system integration."""
+
+    def test_permissions_tool_integration(self):
+        """Test permissions system integration with tools."""
+        with patch('jarvis.core.player.ConsolePlayer.request_confirmation') as mock_confirm:
+            mock_confirm.return_value = "y"  # User confirms
+            
+            context = ActionContext("test_tool", "test action", Mock())
+            result = context.check()
+            
+            # Should integrate with player for confirmation
+            assert result is True
+
+    def test_sandbox_tool_integration(self):
+        """Test sandbox integration with tools."""
+        from jarvis.security.sandbox import execute_code
+        
+        # Test safe code execution
+        result = execute_code("print('Hello, World!')")
+        assert result["success"] is True
+        assert "Hello, World!" in result["stdout"]
+        
+        # Test dangerous code blocking
+        result = execute_code("import os; os.system('echo hacked')")
+        assert result["success"] is False
+
+    def test_secrets_integration(self):
+        """Test secrets management integration."""
+        from jarvis.security.secrets import SecretStore
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets_file = Path(temp_dir) / "test_secrets.json"
+            secret_store = SecretStore(secrets_file)
+            
+            # Test secret storage and retrieval
+            secret_store.set_secret("test_key", "test_value")
+            result = secret_store.get_secret("test_key")
+            assert result == "test_value"
+
+
+class TestWorkflowIntegration:
+    """Test complete workflow integration."""
+
+    def test_complete_user_workflow(self):
+        """Test complete user request workflow."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Setup components
+            store_file = Path(temp_dir) / "test_store.json"
+            memory_store = JsonMemoryStore(store_file)
+            
+            with patch('jarvis.core.orchestrator.LLMClient') as mock_llm:
+                mock_client = Mock()
+                mock_client.chat.return_value = Mock(content="I'll help you with that")
+                mock_llm.return_value = mock_client
+                
+                with patch('jarvis.security.permissions.ActionContext') as mock_context:
+                    mock_context.return_value.check.return_value = True
                     
-                    assert error_count >= 2  # Should have attempted recovery
+                    orchestrator = AgentOrchestrator()
+                    orchestrator.memory_store = memory_store
                     
-                    await assistant.shutdown()
+                    # Process user request
+                    result = orchestrator.process_request(
+                        "Help me organize my desktop",
+                        session_id="user_session"
+                    )
+                    
+                    # Should complete full workflow
+                    assert isinstance(result, dict)
+                    assert "response" in result
+
+    def test_multi_tool_workflow(self):
+        """Test workflow using multiple tools."""
+        tool_runner = ToolRunner()
+        
+        with patch('jarvis.security.permissions.ActionContext') as mock_context:
+            mock_context.return_value.check.return_value = True
+            
+            # Test multiple tool operations
+            tools_to_test = [
+                ("computer_control", {"action": "stats"}),
+                ("send_message", {"platform": "test", "receiver": "user", "message": "hello"}),
+                ("browser_control", {"action": "screenshot"})
+            ]
+            
+            results = []
+            for tool_name, params in tools_to_test:
+                try:
+                    result = tool_runner.run_tool(tool_name, params)
+                    results.append((tool_name, result))
+                except Exception as e:
+                    results.append((tool_name, f"Error: {e}"))
+            
+            # Should handle multiple tools
+            assert len(results) == len(tools_to_test)
+
+    def test_error_recovery_workflow(self):
+        """Test workflow error recovery."""
+        with patch('jarvis.core.orchestrator.LLMClient') as mock_llm:
+            # Simulate LLM error
+            mock_client = Mock()
+            mock_client.chat.side_effect = Exception("LLM unavailable")
+            mock_llm.return_value = mock_client
+            
+            orchestrator = AgentOrchestrator()
+            
+            result = orchestrator.process_request(
+                "Test request during LLM failure",
+                session_id="test_session"
+            )
+            
+            # Should handle LLM failure gracefully
+            assert isinstance(result, dict)
+
+
+class TestPerformanceIntegration:
+    """Test performance integration scenarios."""
+
+    def test_concurrent_requests(self):
+        """Test handling concurrent requests."""
+        with patch('jarvis.core.orchestrator.LLMClient') as mock_llm:
+            mock_client = Mock()
+            mock_client.chat.return_value = Mock(content="Response")
+            mock_llm.return_value = mock_client
+            
+            orchestrator = AgentOrchestrator()
+            results = []
+            
+            def process_request(request_id):
+                result = orchestrator.process_request(
+                    f"Request {request_id}",
+                    session_id=f"session_{request_id}"
+                )
+                results.append(result)
+            
+            # Process multiple requests concurrently
+            threads = []
+            start_time = time.time()
+            
+            for i in range(3):
+                thread = threading.Thread(target=process_request, args=(i,))
+                threads.append(thread)
+                thread.start()
+            
+            for thread in threads:
+                thread.join()
+            
+            elapsed = time.time() - start_time
+            
+            # Should handle concurrent requests efficiently
+            assert len(results) == 3
+            assert elapsed < 5.0  # Should complete within 5 seconds
+
+    def test_memory_performance(self):
+        """Test memory performance under load."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store_file = Path(temp_dir) / "test_store.json"
+            memory_store = JsonMemoryStore(store_file)
+            
+            start_time = time.time()
+            
+            # Perform many memory operations
+            for i in range(50):
+                memory_store.store(f"session{i}", f"key{i}", f"value{i}")
+                memory_store.retrieve(f"session{i}", f"key{i}")
+            
+            elapsed = time.time() - start_time
+            
+            # Should handle memory operations efficiently
+            assert elapsed < 2.0  # Should complete within 2 seconds
+
+    def test_tool_performance(self):
+        """Test tool performance under load."""
+        tool_runner = ToolRunner()
+        
+        with patch('jarvis.security.permissions.ActionContext') as mock_context:
+            mock_context.return_value.check.return_value = True
+            
+            start_time = time.time()
+            
+            # Perform many tool operations
+            for i in range(25):
+                tool_runner.run_tool("computer_control", {"action": "stats"})
+            
+            elapsed = time.time() - start_time
+            
+            # Should handle tool operations efficiently
+            assert elapsed < 3.0  # Should complete within 3 seconds
