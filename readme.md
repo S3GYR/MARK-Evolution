@@ -363,12 +363,17 @@ Licensed under **[Creative Commons BY-NC 4.0](https://creativecommons.org/licens
 
 ---
 
-## 👤 Connect with the Creator
+## About M.A.R.K Evolution
 
-Engineered by a developer building a real-world JARVIS-style assistant.
-⭐ **Star the repository to support the journey to Mark 100.**
+M.A.R.K Evolution (Modular Autonomous Reasoning Keeper) is an AI orchestration platform designed to coordinate language models, memory systems, autonomous agents and automation tools through a unified architecture.
 
-| Platform | Link |
-| --- | --- |
-| YouTube | [@FatihMakes](https://www.youtube.com/@FatihMakes) |
-| Instagram | [@fatihmakes](https://www.instagram.com/fatihmakes) |
+Core capabilities include:
+
+* LiteLLM integration
+* Multi-agent orchestration
+* Long-term memory
+* Browser automation
+* Desktop automation
+* Dashboard and API
+* Knowledge management
+* Future PostgreSQL / Hindsight memory support
